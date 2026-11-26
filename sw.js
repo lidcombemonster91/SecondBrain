@@ -1,5 +1,5 @@
 // 앱 파일을 폰에 저장해 두어 인터넷이 없어도 열리게 한다.
-const CACHE = 'second-brain-v4';
+const CACHE = 'second-brain-v5';
 const FILES = [
   './',
   './index.html',

@@ -444,8 +444,11 @@ test('내보내기를 누르면 메모·링크·사진이 모두 담긴 파일 �
     const { download, json } = await exportData(page);
 
     assert.ok(/\.json$/.test(download.suggestedFilename()), download.suggestedFilename());
-    assert.strictEqual(json.items.length, 3);
-    const byType = Object.fromEntries(json.items.map((i) => [i.type, i]));
+    assert.strictEqual(json.app, 'second-brain');
+    assert.strictEqual(json.version, 2);
+    assert.ok(!('items' in json), '구버전 앱이 거부하도록 items는 넣지 않는다');
+    assert.strictEqual(json.entries.length, 3);
+    const byType = Object.fromEntries(json.entries.map((i) => [i.type, i]));
     assert.strictEqual(byType.memo.text, '백업할 메모');
     assert.strictEqual(byType.link.url, 'https://example.com/backup');
     assert.strictEqual(byType.link.text, '백업할 링크');

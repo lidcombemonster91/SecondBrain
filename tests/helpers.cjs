@@ -1,5 +1,7 @@
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
+const os = require('node:os');
 const path = require('node:path');
 const { chromium, devices } = require('playwright');
 
@@ -68,4 +70,16 @@ async function openApp(url, { colorScheme = 'light' } = {}) {
   return { browser, context, page };
 }
 
-module.exports = { startServer, openApp };
+// 예전 버전의 앱 파일을 git 기록에서 임시 폴더로 꺼낸다. 다 쓰면 호출한 쪽에서 지운다.
+function checkoutOldApp(commit) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-old-'));
+  const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 20 * 1024 * 1024 });
+  const files = git('ls-tree', '-r', '--name-only', commit).toString().split('\n');
+  for (const file of files.filter((f) => f && !f.startsWith('tests/') && !f.startsWith('docs/'))) {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+    fs.writeFileSync(path.join(dir, file), git('show', `${commit}:${file}`));
+  }
+  return dir;
+}
+
+module.exports = { startServer, openApp, checkoutOldApp };
