@@ -13,12 +13,48 @@
     });
   }
 
-  function run(db, mode, fn) {
+  // 화면에 새로 추가한 안내 문구. 나중에 번역 사전으로 옮기기 쉽게 한곳에 모은다.
+  const TEXT = {
+    noDb: '저장 공간이 열리지 않아 저장하지 못했어요. 입력한 내용은 그대로 있어요.',
+    restored: '저장하지 못했어요. 입력한 내용을 되돌려 놓았어요. 다시 저장해 주세요.',
+    keptBelow: '저장하지 못했어요. 아래 "저장 못 한 항목"에 보관했어요.',
+    retryFailed: '다시 저장하지 못했어요.',
+    quota: ' 폰의 저장 공간이 부족할 수 있어요.',
+    retry: '다시 저장',
+    refreshFailed: '저장 작업은 끝났지만 목록을 새로 불러오지 못했어요. 다시 저장하지 말고 앱을 다시 열어 주세요.',
+    loadFailed: '저장한 항목을 불러오지 못했어요. 앱을 다시 열어 주세요.',
+    openFailed: '항목을 열지 못했어요. 다시 눌러 주세요.',
+    editFailed: '수정하지 못했어요. 쓴 내용은 그대로 있어요. 다시 저장해 주세요.',
+    deleteFailed: '삭제하지 못했어요. 메모는 그대로 남아 있어요.',
+    exportFailed: '내보내지 못했어요. 마지막 내보내기 시각은 바꾸지 않았어요.',
+    importNoDb: '저장 공간이 열리지 않아 가져오지 못했어요.',
+    importReadFailed: '파일을 읽지 못했어요. 다시 골라 주세요.',
+    importResume: '같은 파일을 다시 가져오면 나머지를 이어서 가져와요. 이미 가져온 항목은 건너뛰어요.',
+  };
+
+  // 저장 작업 하나를 실행한다. 오류(error)와 중단(abort)은 모두 실패다.
+  function run(database, mode, fn) {
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, mode);
-      const result = fn(tx.objectStore(STORE));
+      if (!database) throw new Error('저장 공간이 열려 있지 않아요');
+      let tx;
+      try {
+        tx = database.transaction(STORE, mode);
+      } catch (error) {
+        // 폰이 저장 공간 연결을 끊은 경우: 다시 열 수 있게 안내한다.
+        if (error.name === 'InvalidStateError') loseDb(database);
+        throw error;
+      }
+      let result;
+      const fail = (event) => reject(tx.error || event.target.error || new Error('저장 작업이 중단됐어요'));
       tx.oncomplete = () => resolve(result && result.result);
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = fail;
+      tx.onabort = fail;
+      try {
+        result = fn(tx.objectStore(STORE));
+      } catch (error) {
+        tx.abort();
+        reject(error);
+      }
     });
   }
 
@@ -32,6 +68,9 @@
   let openId = null;
 
   const searchInput = document.getElementById('search');
+  const listMessage = document.getElementById('list-message');
+  const dbError = document.getElementById('db-error');
+  const dbRetry = document.getElementById('db-retry');
   let allItems = [];
   let thumbUrls = [];
 
@@ -105,6 +144,88 @@
     lastTs = Math.max(lastTs, ...items.map((i) => i.createdAt), 0);
     allItems = items;
     render();
+    listMessage.textContent = '';
+  }
+
+  // 저장·수정·삭제가 끝난 뒤 목록을 맞춘다.
+  // 목록을 다시 읽지 못해도 이미 끝난 작업은 실패가 아니므로, 화면의 목록만 직접 고친다.
+  async function syncList(applyChange) {
+    try {
+      await refresh();
+    } catch {
+      allItems = applyChange(allItems);
+      render();
+      listMessage.textContent = TEXT.refreshFailed;
+    }
+  }
+
+  const withItems = (items, added) => [...items.filter((i) => !added.some((a) => a.id === i.id)), ...added];
+
+  function failureText(base, error) {
+    return error && error.name === 'QuotaExceededError' ? base + TEXT.quota : base;
+  }
+
+  const unsaved = document.getElementById('unsaved');
+  const unsavedList = document.getElementById('unsaved-list');
+  const formMessages = {
+    memo: document.getElementById('memo-message'),
+    link: document.getElementById('link-message'),
+    photo: document.getElementById('photo-message'),
+  };
+  const TYPE_LABELS = { memo: '메모', link: '링크', photo: '사진' };
+
+  // 입력칸으로 되돌릴 수 없는 항목은 앱이 열려 있는 동안 여기에 보관한다.
+  function keepUnsaved(item, preview) {
+    const entry = document.createElement('div');
+    entry.className = 'unsaved-item';
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = TYPE_LABELS[item.type];
+    const body = document.createElement('p');
+    body.className = 'unsaved-text';
+    body.textContent = preview;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = TEXT.retry;
+    const message = document.createElement('p');
+    message.className = 'notice';
+    message.setAttribute('role', 'alert');
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      message.textContent = '';
+      try {
+        await run(db, 'readwrite', (store) => store.add(item));
+      } catch (error) {
+        message.textContent = failureText(TEXT.retryFailed, error);
+        button.disabled = false;
+        return;
+      }
+      entry.remove();
+      unsaved.hidden = unsavedList.childElementCount === 0;
+      formMessages[item.type].textContent = '';
+      await syncList((items) => withItems(items, [item]));
+    });
+    entry.append(badge, body, button, message);
+    unsavedList.append(entry);
+    unsaved.hidden = false;
+  }
+
+  // 새 항목을 저장한다. 실패하면 restore()로 입력칸에 되돌리고, 그럴 수 없으면 따로 보관한다.
+  async function saveNewItem(item, { restore, preview }) {
+    const message = formMessages[item.type];
+    try {
+      await run(db, 'readwrite', (store) => store.add(item));
+    } catch (error) {
+      if (restore()) {
+        message.textContent = failureText(TEXT.restored, error);
+      } else {
+        keepUnsaved(item, preview);
+        message.textContent = failureText(TEXT.keptBelow, error);
+      }
+      return;
+    }
+    message.textContent = '';
+    await syncList((items) => withItems(items, [item]));
   }
 
   searchInput.addEventListener('input', render);
@@ -132,43 +253,84 @@
   list.addEventListener('click', async (event) => {
     const el = event.target.closest('[data-testid="item"]');
     if (!el) return;
-    if (event.target.closest('a')) return;
-    const item = await run(db, 'readonly', (store) => store.get(el.dataset.id));
+    if (event.target.closest('a') || detailBusy) return;
+    let item;
+    try {
+      item = await run(db, 'readonly', (store) => store.get(el.dataset.id));
+    } catch {
+      listMessage.textContent = TEXT.openFailed;
+      return;
+    }
     if (item && item.type === 'photo') {
       openViewer(item);
       return;
     }
-    if (!item || item.type !== 'memo') return;
+    if (!item || item.type !== 'memo' || detailBusy) return;
     openId = item.id;
+    detailMessage.textContent = '';
     detailInput.value = item.text;
     detail.hidden = false;
     detailInput.focus();
   });
 
+  const detailMessage = document.getElementById('detail-message');
+  const detailButtons = ['detail-save', 'detail-delete', 'detail-close'].map((id) => document.getElementById(id));
+  let detailBusy = false;
+
+  // 저장·삭제가 끝날 때까지 편집 화면을 바꾸지 못하게 해서, 실패해도 쓴 내용이 남게 한다.
+  function setDetailBusy(busy) {
+    detailBusy = busy;
+    detailInput.readOnly = busy;
+    detailButtons.forEach((button) => {
+      button.disabled = busy;
+    });
+  }
+
   function closeDetail() {
     openId = null;
     detail.hidden = true;
     detailInput.value = '';
+    detailMessage.textContent = '';
   }
 
   document.getElementById('detail-save').addEventListener('click', async () => {
     const text = detailInput.value.trim();
-    if (!openId || !text) return;
+    if (!openId || !text || detailBusy) return;
     const id = openId;
-    const item = await run(db, 'readonly', (store) => store.get(id));
-    if (!item) return;
-    await run(db, 'readwrite', (store) => store.put({ ...item, text }));
+    let updated;
+    setDetailBusy(true);
+    detailMessage.textContent = '';
+    try {
+      const item = await run(db, 'readonly', (store) => store.get(id));
+      if (!item) throw new Error('수정할 항목이 없어요');
+      updated = { ...item, text };
+      await run(db, 'readwrite', (store) => store.put(updated));
+    } catch (error) {
+      detailMessage.textContent = failureText(TEXT.editFailed, error);
+      return;
+    } finally {
+      setDetailBusy(false);
+    }
     closeDetail();
-    await refresh();
+    await syncList((items) => withItems(items, [updated]));
   });
 
   document.getElementById('detail-delete').addEventListener('click', async () => {
-    if (!openId) return;
+    if (!openId || detailBusy) return;
     if (!window.confirm('이 메모를 삭제할까요? 되돌릴 수 없어요.')) return;
     const id = openId;
-    await run(db, 'readwrite', (store) => store.delete(id));
+    setDetailBusy(true);
+    detailMessage.textContent = '';
+    try {
+      await run(db, 'readwrite', (store) => store.delete(id));
+    } catch {
+      detailMessage.textContent = TEXT.deleteFailed;
+      return;
+    } finally {
+      setDetailBusy(false);
+    }
     closeDetail();
-    await refresh();
+    await syncList((items) => items.filter((item) => item.id !== id));
   });
 
   document.getElementById('detail-close').addEventListener('click', closeDetail);
@@ -179,14 +341,26 @@
     const urlInput = document.getElementById('link-url');
     const descInput = document.getElementById('link-desc');
     const url = normalizeUrl(urlInput.value);
-    if (!url || !db) return;
-    const text = descInput.value.trim();
+    if (!url) return;
+    if (!db) {
+      formMessages.link.textContent = TEXT.noDb;
+      return;
+    }
+    const typed = { url: urlInput.value, desc: descInput.value };
+    const text = typed.desc.trim();
     urlInput.value = '';
     descInput.value = '';
     lastTs = Math.max(Date.now(), lastTs + 1);
     const item = { id: crypto.randomUUID(), type: 'link', url, text, createdAt: lastTs };
-    await run(db, 'readwrite', (store) => store.add(item));
-    await refresh();
+    await saveNewItem(item, {
+      restore() {
+        if (urlInput.value || descInput.value) return false;
+        urlInput.value = typed.url;
+        descInput.value = typed.desc;
+        return true;
+      },
+      preview: text ? `${text}\n${url}` : url,
+    });
   });
 
   const BACKUP_KEY = 'lastBackupAt';
@@ -203,9 +377,10 @@
 
   function showBackupStatus() {
     const at = readLastBackup();
+    // 파일이 실제로 저장됐는지는 알 수 없으므로 "백업"이 아니라 "내보내기"라고 적는다.
     backupStatus.textContent = at
-      ? `마지막 백업: ${new Date(at).toLocaleString('ko-KR', { dateStyle: 'long', timeStyle: 'short' })}`
-      : '아직 백업한 적이 없어요';
+      ? `마지막 내보내기: ${new Date(at).toLocaleString('ko-KR', { dateStyle: 'long', timeStyle: 'short' })} · 파일 앱에서 백업 파일을 확인해 주세요.`
+      : '아직 내보낸 적이 없어요';
   }
 
   function saveLastBackup() {
@@ -229,7 +404,7 @@
   }
 
   // 모든 항목을 파일 하나(JSON)로 내려받는다. 사진도 파일 안에 들어간다.
-  async function exportAll() {
+  async function writeExportFile() {
     const items = await run(db, 'readonly', (store) => store.getAll());
     const out = [];
     for (const item of items) {
@@ -250,12 +425,36 @@
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  const backupMessage = document.getElementById('backup-message');
+  const exportButton = document.getElementById('export-btn');
+  const importButton = document.getElementById('import-btn');
+
+  // 내보내기·가져오기는 한 번에 하나만 실행한다.
+  async function withBackupLock(task) {
+    exportButton.disabled = true;
+    importButton.disabled = true;
+    try {
+      await task();
+    } finally {
+      exportButton.disabled = false;
+      importButton.disabled = false;
+    }
+  }
+
+  async function exportAll() {
+    backupMessage.textContent = '';
+    try {
+      await writeExportFile();
+    } catch {
+      backupMessage.textContent = TEXT.exportFailed;
+      return;
+    }
     saveLastBackup();
   }
 
-  document.getElementById('export-btn').addEventListener('click', () => {
-    if (db) exportAll();
-  });
+  exportButton.addEventListener('click', () => withBackupLock(exportAll));
 
   function base64ToBlob(data, mime) {
     const bytes = Uint8Array.from(atob(data), (ch) => ch.charCodeAt(0));
@@ -289,12 +488,22 @@
     return null;
   }
 
-  const backupMessage = document.getElementById('backup-message');
-
   async function importAll(file) {
+    backupMessage.textContent = '';
+    if (!db) {
+      backupMessage.textContent = TEXT.importNoDb;
+      return;
+    }
+    let content;
+    try {
+      content = await file.text();
+    } catch {
+      backupMessage.textContent = TEXT.importReadFailed;
+      return;
+    }
     let payload;
     try {
-      payload = JSON.parse(await file.text());
+      payload = JSON.parse(content);
     } catch {
       payload = null;
     }
@@ -302,35 +511,41 @@
       backupMessage.textContent = '가져올 수 없는 파일이에요. 내보내기로 만든 파일을 골라 주세요.';
       return;
     }
-    const existing = new Set(await run(db, 'readonly', (store) => store.getAllKeys()));
-    let added = 0;
+    const added = [];
     let duplicated = 0;
     let invalid = 0;
-    for (const raw of payload.items) {
-      const item = parseImportedItem(raw);
-      if (!item) {
-        invalid += 1;
-      } else if (existing.has(item.id)) {
-        duplicated += 1;
-      } else {
-        await run(db, 'readwrite', (store) => store.add(item));
-        existing.add(item.id);
-        added += 1;
+    let interrupted = false;
+    try {
+      const existing = new Set(await run(db, 'readonly', (store) => store.getAllKeys()));
+      for (const raw of payload.items) {
+        const item = parseImportedItem(raw);
+        if (!item) {
+          invalid += 1;
+        } else if (existing.has(item.id)) {
+          duplicated += 1;
+        } else {
+          await run(db, 'readwrite', (store) => store.add(item));
+          existing.add(item.id);
+          added.push(item);
+        }
       }
+    } catch {
+      interrupted = true;
     }
-    await refresh();
-    const parts = [`${added}개를 가져왔어요.`];
+    await syncList((items) => withItems(items, added));
+    const parts = [interrupted ? `${added.length}개를 가져온 뒤 중단됐어요.` : `${added.length}개를 가져왔어요.`];
     if (duplicated) parts.push(`이미 있는 ${duplicated}개는 건너뛰었어요.`);
     if (invalid) parts.push(`읽을 수 없는 ${invalid}개는 건너뛰었어요.`);
+    if (interrupted) parts.push(TEXT.importResume);
     backupMessage.textContent = parts.join(' ');
   }
 
   const importFile = document.getElementById('import-file');
-  document.getElementById('import-btn').addEventListener('click', () => importFile.click());
+  importButton.addEventListener('click', () => importFile.click());
   importFile.addEventListener('change', async () => {
     const file = importFile.files[0];
     importFile.value = '';
-    if (file && db) await importAll(file);
+    if (file) await withBackupLock(() => importAll(file));
   });
 
   const MAX_SIDE = 1600;
@@ -361,33 +576,97 @@
     const fileInput = document.getElementById('photo-file');
     const descInput = document.getElementById('photo-desc');
     const file = fileInput.files[0];
-    if (!file || !db) return;
-    const text = descInput.value.trim();
+    if (!file) return;
+    if (!db) {
+      formMessages.photo.textContent = TEXT.noDb;
+      return;
+    }
+    const typedDesc = descInput.value;
+    const text = typedDesc.trim();
     fileInput.value = '';
     descInput.value = '';
     lastTs = Math.max(Date.now(), lastTs + 1);
+    const createdAt = lastTs;
     const blob = await shrinkPhoto(file);
-    const item = { id: crypto.randomUUID(), type: 'photo', text, blob, createdAt: lastTs };
-    await run(db, 'readwrite', (store) => store.add(item));
-    await refresh();
+    const item = { id: crypto.randomUUID(), type: 'photo', text, blob, createdAt };
+    await saveNewItem(item, {
+      restore() {
+        if (fileInput.files.length || descInput.value) return false;
+        // 선택했던 파일을 파일 선택칸에 되돌린다. 브라우저가 막으면 따로 보관한다.
+        try {
+          const transfer = new DataTransfer();
+          transfer.items.add(file);
+          fileInput.files = transfer.files;
+        } catch {
+          return false;
+        }
+        if (fileInput.files.length !== 1) return false;
+        descInput.value = typedDesc;
+        return true;
+      },
+      preview: text ? `${file.name}\n${text}` : file.name,
+    });
   });
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const text = input.value.trim();
-    if (!text || !db) return;
+    const typed = input.value;
+    const text = typed.trim();
+    if (!text) return;
+    if (!db) {
+      formMessages.memo.textContent = TEXT.noDb;
+      return;
+    }
     // 저장을 기다리는 동안 다음 글을 쓸 수 있도록 입력칸을 바로 비운다.
     input.value = '';
     lastTs = Math.max(Date.now(), lastTs + 1);
     const item = { id: crypto.randomUUID(), type: 'memo', text, createdAt: lastTs };
-    await run(db, 'readwrite', (store) => store.add(item));
-    await refresh();
+    await saveNewItem(item, {
+      restore() {
+        if (input.value.trim()) return false;
+        input.value = typed;
+        return true;
+      },
+      preview: text,
+    });
   });
 
-  openDb().then((opened) => {
+  // 저장 공간과의 연결이 끊겼을 때 안내를 띄운다.
+  function loseDb(database) {
+    if (db !== database) return;
+    db = undefined;
+    dbError.hidden = false;
+  }
+
+  async function connect() {
+    let opened;
+    try {
+      opened = await openDb();
+    } catch {
+      dbError.hidden = false;
+      return;
+    }
+    opened.onclose = () => loseDb(opened);
+    opened.onversionchange = () => {
+      opened.close();
+      loseDb(opened);
+    };
     db = opened;
-    return refresh();
+    dbError.hidden = true;
+    try {
+      await refresh();
+    } catch {
+      listMessage.textContent = TEXT.loadFailed;
+    }
+  }
+
+  dbRetry.addEventListener('click', async () => {
+    dbRetry.disabled = true;
+    await connect();
+    dbRetry.disabled = false;
   });
+
+  connect();
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {

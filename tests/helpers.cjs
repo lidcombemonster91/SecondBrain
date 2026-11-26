@@ -19,7 +19,9 @@ const TYPES = {
 
 // 시험용 파일 서버. Node만으로 동작한다.
 // base를 주면 GitHub Pages처럼 그 하위 주소에서만 파일을 준다. (밖의 주소는 404)
-async function startServer(port, { base = '/', root = ROOT } = {}) {
+// maxAge를 주면 GitHub Pages처럼 브라우저가 파일을 잠시 보관한다. setRoot()는 새 버전 배포를 흉내 낸다.
+async function startServer(port, { base = '/', root = ROOT, maxAge } = {}) {
+  let currentRoot = root;
   const server = http.createServer((req, res) => {
     const notFound = () => res.writeHead(404).end('not found');
     let pathname;
@@ -31,11 +33,13 @@ async function startServer(port, { base = '/', root = ROOT } = {}) {
     if (!pathname.startsWith(base)) return notFound();
     let relative = pathname.slice(base.length);
     if (relative === '' || relative.endsWith('/')) relative += 'index.html';
-    const file = path.resolve(root, relative);
-    if (!file.startsWith(path.resolve(root) + path.sep)) return notFound();
+    const file = path.resolve(currentRoot, relative);
+    if (!file.startsWith(path.resolve(currentRoot) + path.sep)) return notFound();
     fs.readFile(file, (error, data) => {
       if (error) return notFound();
-      res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
+      const headers = { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' };
+      if (maxAge !== undefined) headers['Cache-Control'] = `max-age=${maxAge}`;
+      res.writeHead(200, headers);
       res.end(data);
     });
   });
@@ -45,6 +49,9 @@ async function startServer(port, { base = '/', root = ROOT } = {}) {
   });
   return {
     url: `http://127.0.0.1:${port}${base}`,
+    setRoot: (next) => {
+      currentRoot = next;
+    },
     stop: () => {
       server.closeAllConnections();
       server.close();

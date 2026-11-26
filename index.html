@@ -17,6 +17,10 @@
   <body>
     <main>
       <h1>세컨드 브레인</h1>
+      <section id="db-error" role="alert" hidden>
+        <p>지금은 저장할 수 없어요. 폰의 저장 공간을 열지 못했어요. 입력한 글은 복사해 둘 수 있어요.</p>
+        <button type="button" id="db-retry">다시 시도</button>
+      </section>
       <aside id="install-tip" hidden>
         <strong>홈 화면에 추가해서 쓰세요</strong>
         <p>사파리 아래쪽 <b>공유</b> 버튼 → <b>홈 화면에 추가</b>를 누르면 앱처럼 열려요.</p>
@@ -34,22 +38,32 @@
       <form id="memo-form">
         <textarea id="memo-input" rows="3" placeholder="무슨 생각이 나세요?" aria-label="메모 입력"></textarea>
         <button type="submit">저장</button>
+        <p id="memo-message" class="notice" role="alert"></p>
       </form>
       <form id="link-form">
         <input id="link-url" type="text" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="링크를 붙여넣으세요" aria-label="링크 주소" />
         <input id="link-desc" type="text" placeholder="링크 설명 (선택)" aria-label="링크 설명" />
         <button type="submit">링크 추가</button>
+        <p id="link-message" class="notice" role="alert"></p>
       </form>
       <form id="photo-form">
         <input id="photo-file" type="file" accept="image/*" aria-label="사진 선택" />
         <input id="photo-desc" type="text" placeholder="사진 설명 (선택)" aria-label="사진 설명" />
         <button type="submit">사진 추가</button>
+        <p id="photo-message" class="notice" role="alert"></p>
       </form>
+      <section id="unsaved" aria-label="저장 못 한 항목" hidden>
+        <h2>저장 못 한 항목</h2>
+        <p>앱을 닫으면 사라져요. 새로고침해도 사라져요. 먼저 다시 저장하거나 글을 복사해 두세요.</p>
+        <div id="unsaved-list"></div>
+      </section>
       <input id="search" type="search" placeholder="검색" aria-label="검색" autocomplete="off" />
       <p id="empty" hidden>결과가 없어요</p>
+      <p id="list-message" class="notice" role="alert"></p>
       <section id="list" aria-label="저장한 항목"></section>
       <section id="detail" hidden aria-label="메모 보기">
         <textarea id="detail-input" rows="6" aria-label="메모 수정"></textarea>
+        <p id="detail-message" class="notice" role="alert"></p>
         <div class="actions">
           <button type="button" id="detail-save">수정 저장</button>
           <button type="button" id="detail-delete" class="danger">삭제</button>

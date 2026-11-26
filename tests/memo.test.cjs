@@ -548,22 +548,23 @@ test('가져온 파일 속 위험한 주소와 깨진 항목은 건너뛴다', a
   }
 });
 
-test('마지막 백업 날짜가 화면에 보이고, 내보내면 오늘 날짜로 바뀐다', async () => {
+test('마지막 내보내기 날짜가 화면에 보이고, 내보내면 오늘 날짜로 바뀐다', async () => {
   const { browser, page } = await openApp(server.url);
   try {
-    await page.getByText('아직 백업한 적이 없어요').waitFor({ timeout: 3000 });
+    await page.getByText('아직 내보낸 적이 없어요').waitFor({ timeout: 3000 });
     await saveMemo(page, '백업 날짜 확인');
     await exportData(page);
 
     const status = page.locator('#backup-status');
-    await page.getByText('마지막 백업').waitFor({ timeout: 3000 });
+    await page.getByText('마지막 내보내기').waitFor({ timeout: 3000 });
     const today = new Date();
     const text = await status.innerText();
     assert.ok(text.includes(`${today.getFullYear()}`), text);
     assert.ok(!text.includes('아직'), text);
+    assert.ok(text.includes('파일 앱'), text);
 
     await page.reload();
-    await page.getByText('마지막 백업').waitFor({ timeout: 3000 });
+    await page.getByText('마지막 내보내기').waitFor({ timeout: 3000 });
   } finally {
     await browser.close();
   }

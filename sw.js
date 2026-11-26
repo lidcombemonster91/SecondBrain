@@ -1,5 +1,5 @@
 // 앱 파일을 폰에 저장해 두어 인터넷이 없어도 열리게 한다.
-const CACHE = 'second-brain-v3';
+const CACHE = 'second-brain-v4';
 const FILES = [
   './',
   './index.html',
@@ -15,7 +15,8 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(FILES))
+      // 브라우저가 잠시 보관한 옛 파일이 아니라 서버의 새 파일을 받는다.
+      .then((cache) => cache.addAll(FILES.map((file) => new Request(file, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
   );
 });
