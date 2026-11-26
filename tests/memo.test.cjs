@@ -693,13 +693,9 @@ test('홈 화면 앱으로 열면 설치 안내가 보이지 않는다', async (
   }
 });
 
-test('GitHub Pages처럼 /test/ 하위 주소에서도 오프라인·아이콘이 동작한다', async () => {
-  const os = require('node:os');
-  const path = require('node:path');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-subpath-'));
-  fs.symlinkSync(path.join(__dirname, '..'), path.join(dir, 'test'));
-  const sub = await startServer(8732, dir);
-  const { browser, context, page } = await openApp(`${sub.url}test/`);
+test('GitHub Pages처럼 /SecondBrain/ 하위 주소에서도 오프라인·아이콘이 동작한다', async () => {
+  const sub = await startServer(8732, { base: '/SecondBrain/' });
+  const { browser, context, page } = await openApp(sub.url);
   try {
     await waitForOfflineReady(page);
     await context.setOffline(true);
@@ -713,6 +709,5 @@ test('GitHub Pages처럼 /test/ 하위 주소에서도 오프라인·아이콘�
   } finally {
     await browser.close();
     sub.stop();
-    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

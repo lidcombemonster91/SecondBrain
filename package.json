@@ -5,5 +5,8 @@
   "description": "혼자 쓰는 세컨드 브레인 웹앱(PWA)",
   "scripts": {
     "test": "node --test --test-timeout=60000 \"tests/*.test.cjs\""
+  },
+  "devDependencies": {
+    "playwright": "1.65.1"
   }
 }
