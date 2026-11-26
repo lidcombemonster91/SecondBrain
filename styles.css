@@ -341,3 +341,72 @@ button:disabled {
   user-select: text;
   -webkit-user-select: text;
 }
+
+.hint {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+#backup .hint {
+  margin-top: 8px;
+}
+
+#link-form textarea {
+  min-height: 96px;
+}
+
+#paste-btn {
+  margin-top: 0;
+  justify-self: start;
+}
+
+#share-guide {
+  margin-top: 12px;
+  padding: 0 12px;
+  font-size: 15px;
+  background: var(--card);
+  border-radius: 12px;
+}
+
+#share-guide summary {
+  min-height: 48px;
+  padding: 12px 0;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#share-guide ol {
+  padding-left: 20px;
+}
+
+#share-guide > :last-child {
+  padding-bottom: 12px;
+}
+
+/* 목록에서는 캡션을 두 줄까지만 보여준다. 전체는 상세 화면에서 본다. */
+.caption-preview {
+  display: -webkit-box;
+  margin-top: 4px;
+  overflow: hidden;
+  font-size: 15px;
+  opacity: 0.8;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+#detail-link-info {
+  margin-bottom: 8px;
+}
+
+#detail-link-info p {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+
+#detail-link-info a {
+  display: block;
+  padding: 12px 0;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}

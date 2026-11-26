@@ -1,26 +1,16 @@
-// 이미 배포된 버전(edea9dc)을 쓰던 사람이 새 버전으로 바뀌어도 데이터가 남는지 시험한다.
+// 이미 배포된 버전을 쓰던 사람이 새 버전으로 바뀌어도 데이터가 남는지 시험한다.
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
-const { startServer, openApp } = require('./helpers.cjs');
+const { startServer, openApp, checkoutOldApp } = require('./helpers.cjs');
 
 const ROOT = path.join(__dirname, '..');
-const OLD_COMMIT = 'edea9dc';
-
-// 예전 버전의 앱 파일을 git 기록에서 임시 폴더로 꺼낸다.
-function checkoutOldApp() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-old-'));
-  const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 20 * 1024 * 1024 });
-  const files = git('ls-tree', '-r', '--name-only', OLD_COMMIT).toString().split('\n');
-  for (const file of files.filter((f) => f && !f.startsWith('tests/') && !f.startsWith('docs/'))) {
-    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
-    fs.writeFileSync(path.join(dir, file), git('show', `${OLD_COMMIT}:${file}`));
-  }
-  return dir;
-}
+// 첫 배포본과 1단계 배포본
+const OLD_VERSIONS = [
+  { commit: 'edea9dc', cache: 'second-brain-v3' },
+  { commit: 'aad9805', cache: 'second-brain-v4' },
+];
 
 const cacheNames = (page) => page.evaluate(() => caches.keys());
 const currentCache = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').match(/const CACHE = '([^']+)'/)[1];
@@ -30,8 +20,8 @@ const png = Buffer.from(
   'base64'
 );
 
-test('구버전에서 만든 메모·링크·사진이 업데이트 후에도 남고 검색되며, 서비스 워커는 새 파일로 바뀐다', async () => {
-  const oldDir = checkoutOldApp();
+async function upgradeFrom(old) {
+  const oldDir = checkoutOldApp(old.commit);
   const server = await startServer(8751, { base: '/SecondBrain/', root: oldDir, maxAge: 600 });
   const { browser, page } = await openApp(server.url);
   try {
@@ -49,7 +39,7 @@ test('구버전에서 만든 메모·링크·사진이 업데이트 후에도 �
     await page.getByRole('button', { name: '사진 추가' }).click();
     await page.getByTestId('item').nth(2).waitFor({ timeout: 5000 });
     await page.evaluate(() => localStorage.setItem('lastBackupAt', String(Date.UTC(2026, 0, 15, 3, 0))));
-    assert.deepStrictEqual(await cacheNames(page), ['second-brain-v3']);
+    assert.deepStrictEqual(await cacheNames(page), [old.cache]);
 
     // 2) 새 버전 배포
     server.setRoot(ROOT);
@@ -64,7 +54,7 @@ test('구버전에서 만든 메모·링크·사진이 업데이트 후에도 �
     await page.reload();
 
     // 3) 새 화면 파일이 쓰이고, 예전 데이터는 그대로다
-    await page.locator('#unsaved').waitFor({ state: 'attached', timeout: 5000 });
+    await page.locator('#paste-btn').waitFor({ state: 'attached', timeout: 5000 });
     const cachedScript = await page.evaluate(async (name) => {
       const cache = await caches.open(name);
       return (await cache.match('./app.js')).text();
@@ -81,6 +71,10 @@ test('구버전에서 만든 메모·링크·사진이 업데이트 후에도 �
     }
     await page.getByLabel('검색').fill('');
     await page.waitForFunction(() => document.querySelector('[data-type="photo"] img')?.naturalWidth > 0);
+    // 캡션이 없던 예전 링크도 상세 화면이 열린다.
+    await page.locator('[data-type="link"] .badge').click();
+    await page.getByLabel('캡션 편집').waitFor({ state: 'visible', timeout: 3000 });
+    assert.strictEqual(await page.getByLabel('캡션 편집').inputValue(), '');
     // 예전 lastBackupAt 값은 계속 읽는다.
     const status = await page.locator('#backup-status').innerText();
     assert.ok(status.includes('마지막 내보내기') && status.includes('2026'), status);
@@ -89,4 +83,9 @@ test('구버전에서 만든 메모·링크·사진이 업데이트 후에도 �
     server.stop();
     fs.rmSync(oldDir, { recursive: true, force: true });
   }
-});
+}
+
+for (const old of OLD_VERSIONS) {
+  test(`구버전(${old.commit})에서 만든 메모·링크·사진이 업데이트 후에도 남고 검색되며, 서비스 워커는 새 파일로 바뀐다`, () =>
+    upgradeFrom(old));
+}

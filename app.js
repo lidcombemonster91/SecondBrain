@@ -30,6 +30,36 @@
     importNoDb: '저장 공간이 열리지 않아 가져오지 못했어요.',
     importReadFailed: '파일을 읽지 못했어요. 다시 골라 주세요.',
     importResume: '같은 파일을 다시 가져오면 나머지를 이어서 가져와요. 이미 가져온 항목은 건너뛰어요.',
+    importUnreadable: '가져올 수 없는 파일이에요. 내보내기로 만든 파일을 골라 주세요.',
+    importUnknownVersion: '가져올 수 없는 파일이에요. 이 앱이 읽을 수 없는 버전이에요. 앱을 업데이트한 뒤 다시 가져와 주세요.',
+    needUrl: '주소가 필요해요. 주소 칸에 링크를 넣어 주세요.',
+    pasteFailed: '클립보드를 읽지 못했어요. 넣을 칸을 길게 눌러 "붙여넣기"를 골라 직접 붙여넣어 주세요.',
+    pasteEmpty: '클립보드에 붙여넣을 글이 없어요. 다시 복사하거나, 넣을 칸을 길게 눌러 직접 붙여넣어 주세요.',
+    pasteKept: (fields) => `${fields.join('·')} 칸에는 이미 글이 있어 덮어쓰지 않았어요. 칸을 비우고 다시 붙여넣어 주세요.`,
+    urlField: '주소',
+    descField: '설명',
+  };
+
+  // 상세 화면은 하나를 같이 쓰고, 항목 종류에 따라 고치는 칸과 문구가 달라진다.
+  const DETAIL = {
+    memo: {
+      title: '메모 보기',
+      inputLabel: '메모 수정',
+      saveLabel: '수정 저장',
+      field: 'text',
+      required: true,
+      confirm: '이 메모를 삭제할까요? 되돌릴 수 없어요.',
+      deleteFailed: TEXT.deleteFailed,
+    },
+    link: {
+      title: '링크 보기',
+      inputLabel: '캡션 편집',
+      saveLabel: '캡션 저장',
+      field: 'caption',
+      required: false, // 비워서 저장하면 캡션만 지운다.
+      confirm: '이 링크를 삭제할까요? 되돌릴 수 없어요.',
+      deleteFailed: '삭제하지 못했어요. 링크는 그대로 남아 있어요.',
+    },
   };
 
   // 저장 작업 하나를 실행한다. 오류(error)와 중단(abort)은 모두 실패다.
@@ -76,7 +106,7 @@
 
   // 검색에 쓰이는 글: 항목 종류가 늘어나도 여기만 고치면 된다.
   function searchableText(item) {
-    return item.type === 'link' ? `${item.text} ${item.url}` : item.text || '';
+    return item.type === 'link' ? [item.text, item.url, item.caption].filter(Boolean).join(' ') : item.text || '';
   }
 
   // http/https 주소만 허용한다. (javascript: 같은 위험한 주소는 막는다)
@@ -90,6 +120,52 @@
     } catch {
       return null;
     }
+  }
+
+  // ---- 붙여넣기 분류 ----
+  // normalizeUrl()은 'hello'도 주소로 받아들이므로, 붙여넣은 글을 나눌 때는 아래 규칙을 따른다.
+  const WEB_URL = /https?:\/\/[^\s<>"“”‘’「」『』、。]+/i;
+  const BRACKETS = { ')': '(', ']': '[', '}': '{' };
+
+  // 주소 뒤에 붙은 문장 부호를 뺀다. 주소 안에서 짝이 맞는 괄호는 남긴다.
+  function trimUrl(url) {
+    let result = url;
+    while (result) {
+      const last = result.slice(-1);
+      const open = BRACKETS[last];
+      const extraBracket = open && result.split(last).length > result.split(open).length;
+      if (!extraBracket && !/[.,;:!?'…！？，]/.test(last)) break;
+      result = result.slice(0, -1);
+    }
+    return result;
+  }
+
+  // 'example.com'처럼 http가 없는 주소 모양인지 확인한다.
+  function isBareAddress(value) {
+    if (/\s/.test(value)) return false;
+    const host = value.split(/[/?#]/)[0];
+    if (!/^[^:@\\]+(:\d+)?$/.test(host)) return false;
+    const labels = host.replace(/:\d+$/, '').split('.');
+    return labels.length > 1 && labels.every(Boolean) && /^\p{L}{2,}$/u.test(labels[labels.length - 1]);
+  }
+
+  // 설명 칸은 한 줄이라 줄바꿈을 띄어쓰기로 바꾼다.
+  const oneLine = (value) => value.replace(/\s+/g, ' ').trim();
+
+  function classifyPaste(raw) {
+    const value = raw.trim();
+    const match = value.match(WEB_URL);
+    if (match) {
+      const url = trimUrl(match[0]);
+      if (normalizeUrl(url)) {
+        const around = `${value.slice(0, match.index)} ${value.slice(match.index + url.length)}`;
+        const rest = oneLine(around.replace(/\(\s*\)|\[\s*\]|<\s*>/g, ' '));
+        return { url, desc: /^[\p{P}<>\s]*$/u.test(rest) ? '' : rest };
+      }
+    }
+    const bare = trimUrl(value);
+    if (isBareAddress(bare) && normalizeUrl(bare)) return { url: `https://${bare}`, desc: '' };
+    return { url: '', desc: oneLine(value) };
   }
 
   function render() {
@@ -119,6 +195,12 @@
           anchor.rel = 'noopener noreferrer';
           anchor.textContent = item.url;
           el.append(badge, desc, anchor);
+          if (item.caption) {
+            const caption = document.createElement('span');
+            caption.className = 'caption-preview';
+            caption.textContent = item.caption;
+            el.append(caption);
+          }
         } else if (item.type === 'photo') {
           const badge = document.createElement('span');
           badge.className = 'badge';
@@ -157,6 +239,17 @@
       render();
       listMessage.textContent = TEXT.refreshFailed;
     }
+  }
+
+  // 저장한 순서가 유지되도록 만든 시각은 항상 앞의 것보다 크게 한다.
+  function nextTimestamp() {
+    lastTs = Math.max(Date.now(), lastTs + 1);
+    return lastTs;
+  }
+
+  // 모든 새 항목은 여기에서 만든다.
+  function createItem(type, fields, createdAt = nextTimestamp()) {
+    return { id: crypto.randomUUID(), type, createdAt, ...fields };
   }
 
   const withItems = (items, added) => [...items.filter((i) => !added.some((a) => a.id === i.id)), ...added];
@@ -265,13 +358,38 @@
       openViewer(item);
       return;
     }
-    if (!item || item.type !== 'memo' || detailBusy) return;
-    openId = item.id;
-    detailMessage.textContent = '';
-    detailInput.value = item.text;
-    detail.hidden = false;
-    detailInput.focus();
+    if (!item || !DETAIL[item.type] || detailBusy) return;
+    openDetail(item);
   });
+
+  const detailSave = document.getElementById('detail-save');
+  const linkInfo = document.getElementById('detail-link-info');
+  let openType = null;
+
+  function openDetail(item) {
+    const view = DETAIL[item.type];
+    openId = item.id;
+    openType = item.type;
+    detailMessage.textContent = '';
+    detail.setAttribute('aria-label', view.title);
+    detailInput.setAttribute('aria-label', view.inputLabel);
+    detailInput.placeholder = item.type === 'link' ? '캡션이 없어요. 여기에 적거나 붙여넣을 수 있어요.' : '';
+    detailSave.textContent = view.saveLabel;
+    detailInput.value = item[view.field] || '';
+    linkInfo.hidden = item.type !== 'link';
+    if (item.type === 'link') {
+      document.getElementById('detail-link-desc').textContent = item.text;
+      const anchor = document.getElementById('detail-link-url');
+      anchor.textContent = item.url;
+      // 저장된 값도 다시 검사해서 http/https 주소만 누를 수 있게 한다.
+      const safeUrl = normalizeUrl(item.url);
+      if (safeUrl) anchor.href = safeUrl;
+      else anchor.removeAttribute('href');
+    }
+    detail.hidden = false;
+    if (item.type === 'memo') detailInput.focus();
+    else detail.scrollIntoView({ block: 'nearest' }); // 링크는 키보드를 바로 띄우지 않는다.
+  }
 
   const detailMessage = document.getElementById('detail-message');
   const detailButtons = ['detail-save', 'detail-delete', 'detail-close'].map((id) => document.getElementById(id));
@@ -293,9 +411,11 @@
     detailMessage.textContent = '';
   }
 
-  document.getElementById('detail-save').addEventListener('click', async () => {
+  detailSave.addEventListener('click', async () => {
     const text = detailInput.value.trim();
-    if (!openId || !text || detailBusy) return;
+    if (!openId || detailBusy) return;
+    const view = DETAIL[openType];
+    if (view.required && !text) return;
     const id = openId;
     let updated;
     setDetailBusy(true);
@@ -303,7 +423,8 @@
     try {
       const item = await run(db, 'readonly', (store) => store.get(id));
       if (!item) throw new Error('수정할 항목이 없어요');
-      updated = { ...item, text };
+      updated = { ...item, [view.field]: text };
+      if (!view.required && !text) delete updated[view.field];
       await run(db, 'readwrite', (store) => store.put(updated));
     } catch (error) {
       detailMessage.textContent = failureText(TEXT.editFailed, error);
@@ -317,14 +438,15 @@
 
   document.getElementById('detail-delete').addEventListener('click', async () => {
     if (!openId || detailBusy) return;
-    if (!window.confirm('이 메모를 삭제할까요? 되돌릴 수 없어요.')) return;
+    const view = DETAIL[openType];
+    if (!window.confirm(view.confirm)) return;
     const id = openId;
     setDetailBusy(true);
     detailMessage.textContent = '';
     try {
       await run(db, 'readwrite', (store) => store.delete(id));
     } catch {
-      detailMessage.textContent = TEXT.deleteFailed;
+      detailMessage.textContent = view.deleteFailed;
       return;
     } finally {
       setDetailBusy(false);
@@ -336,30 +458,63 @@
   document.getElementById('detail-close').addEventListener('click', closeDetail);
 
   const linkForm = document.getElementById('link-form');
+  const urlInput = document.getElementById('link-url');
+  const descInput = document.getElementById('link-desc');
+  const captionInput = document.getElementById('link-caption');
+
+  // 클립보드는 이 버튼을 눌렀을 때만 읽는다. 캡션 칸은 채우지 않는다.
+  document.getElementById('paste-btn').addEventListener('click', async () => {
+    let clip;
+    try {
+      clip = await navigator.clipboard.readText();
+    } catch {
+      formMessages.link.textContent = TEXT.pasteFailed;
+      return;
+    }
+    if (!clip.trim()) {
+      formMessages.link.textContent = TEXT.pasteEmpty;
+      return;
+    }
+    const parts = classifyPaste(clip);
+    const kept = [];
+    for (const [box, value, name] of [
+      [urlInput, parts.url, TEXT.urlField],
+      [descInput, parts.desc, TEXT.descField],
+    ]) {
+      if (!value) continue;
+      if (box.value.trim()) kept.push(name);
+      else box.value = value;
+    }
+    formMessages.link.textContent = kept.length ? TEXT.pasteKept(kept) : '';
+  });
+
   linkForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const urlInput = document.getElementById('link-url');
-    const descInput = document.getElementById('link-desc');
     const url = normalizeUrl(urlInput.value);
-    if (!url) return;
+    if (!url) {
+      formMessages.link.textContent = TEXT.needUrl;
+      return;
+    }
     if (!db) {
       formMessages.link.textContent = TEXT.noDb;
       return;
     }
-    const typed = { url: urlInput.value, desc: descInput.value };
+    const typed = { url: urlInput.value, desc: descInput.value, caption: captionInput.value };
     const text = typed.desc.trim();
+    const caption = typed.caption.trim();
     urlInput.value = '';
     descInput.value = '';
-    lastTs = Math.max(Date.now(), lastTs + 1);
-    const item = { id: crypto.randomUUID(), type: 'link', url, text, createdAt: lastTs };
+    captionInput.value = '';
+    const item = createItem('link', caption ? { url, text, caption } : { url, text });
     await saveNewItem(item, {
       restore() {
-        if (urlInput.value || descInput.value) return false;
+        if (urlInput.value || descInput.value || captionInput.value) return false;
         urlInput.value = typed.url;
         descInput.value = typed.desc;
+        captionInput.value = typed.caption;
         return true;
       },
-      preview: text ? `${text}\n${url}` : url,
+      preview: [text, url, caption].filter(Boolean).join('\n'),
     });
   });
 
@@ -415,7 +570,8 @@
       out.push(rest);
     }
     out.sort((a, b) => a.createdAt - b.createdAt);
-    const payload = { app: 'second-brain', version: 1, exportedAt: new Date().toISOString(), items: out };
+    // v2는 배열 이름이 entries다. items를 넣지 않아야 옛 버전 앱이 캡션을 빠뜨린 채 가져오지 않고 거부한다.
+    const payload = { app: 'second-brain', version: 2, exportedAt: new Date().toISOString(), entries: out };
     const file = new Blob([JSON.stringify(payload)], { type: 'application/json' });
     const url = URL.createObjectURL(file);
     const link = document.createElement('a');
@@ -474,7 +630,9 @@
     }
     if (raw.type === 'link') {
       const url = typeof raw.url === 'string' ? normalizeUrl(raw.url) : null;
-      return url ? { ...base, url } : null;
+      if (!url) return null;
+      const caption = typeof raw.caption === 'string' ? raw.caption.trim() : '';
+      return caption ? { ...base, url, caption } : { ...base, url };
     }
     if (raw.type === 'photo') {
       const photo = raw.photo;
@@ -487,6 +645,12 @@
     }
     return null;
   }
+
+  // 백업 버전마다 항목 배열의 이름이 다르다. 모르는 버전은 읽지 않는다.
+  const BACKUP_LISTS = new Map([
+    [1, 'items'],
+    [2, 'entries'],
+  ]);
 
   async function importAll(file) {
     backupMessage.textContent = '';
@@ -507,8 +671,18 @@
     } catch {
       payload = null;
     }
-    if (!payload || payload.app !== 'second-brain' || !Array.isArray(payload.items)) {
-      backupMessage.textContent = '가져올 수 없는 파일이에요. 내보내기로 만든 파일을 골라 주세요.';
+    if (!payload || payload.app !== 'second-brain') {
+      backupMessage.textContent = TEXT.importUnreadable;
+      return;
+    }
+    const listName = BACKUP_LISTS.get(payload.version);
+    if (!listName) {
+      backupMessage.textContent = TEXT.importUnknownVersion;
+      return;
+    }
+    const entries = payload[listName];
+    if (!Array.isArray(entries)) {
+      backupMessage.textContent = TEXT.importUnreadable;
       return;
     }
     const added = [];
@@ -517,7 +691,7 @@
     let interrupted = false;
     try {
       const existing = new Set(await run(db, 'readonly', (store) => store.getAllKeys()));
-      for (const raw of payload.items) {
+      for (const raw of entries) {
         const item = parseImportedItem(raw);
         if (!item) {
           invalid += 1;
@@ -585,10 +759,9 @@
     const text = typedDesc.trim();
     fileInput.value = '';
     descInput.value = '';
-    lastTs = Math.max(Date.now(), lastTs + 1);
-    const createdAt = lastTs;
+    const createdAt = nextTimestamp(); // 사진을 줄이는 동안에도 고른 순서를 지킨다.
     const blob = await shrinkPhoto(file);
-    const item = { id: crypto.randomUUID(), type: 'photo', text, blob, createdAt };
+    const item = createItem('photo', { text, blob }, createdAt);
     await saveNewItem(item, {
       restore() {
         if (fileInput.files.length || descInput.value) return false;
@@ -619,8 +792,7 @@
     }
     // 저장을 기다리는 동안 다음 글을 쓸 수 있도록 입력칸을 바로 비운다.
     input.value = '';
-    lastTs = Math.max(Date.now(), lastTs + 1);
-    const item = { id: crypto.randomUUID(), type: 'memo', text, createdAt: lastTs };
+    const item = createItem('memo', { text });
     await saveNewItem(item, {
       restore() {
         if (input.value.trim()) return false;
