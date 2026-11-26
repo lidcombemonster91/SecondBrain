@@ -33,6 +33,8 @@
           <input id="import-file" type="file" accept="application/json,.json" aria-label="가져오기 파일" hidden />
         </div>
         <p id="backup-status"></p>
+        <p id="persist-status" class="hint"></p>
+        <p class="hint">앱이나 웹사이트 데이터를 지우거나, 오래 안 쓰거나, 저장 공간이 부족하면 폰이 저장한 내용을 지울 수 있어요. 내보내기로 백업해 두세요. 백업 파일은 암호화되지 않아요.</p>
         <p class="hint">백업 파일을 가져오기 전에 앱을 업데이트하세요. 옛 버전 앱은 새 백업 파일을 읽지 못해요.</p>
         <p id="backup-message" role="status"></p>
       </section>
@@ -76,6 +78,14 @@
         <button type="submit">사진 추가</button>
         <p id="photo-message" class="notice" role="alert"></p>
       </form>
+      <form id="pdf-form">
+        <input id="pdf-file" type="file" accept="application/pdf,.pdf" aria-label="PDF 선택" />
+        <input id="pdf-desc" type="text" placeholder="PDF 설명 (선택)" aria-label="PDF 설명" />
+        <p class="hint">PDF는 20MB까지 저장해요. 글은 앞에서 500,000자까지 검색하고, 요약 요청문은 요청문을 포함해 100,000자까지 복사해요.</p>
+        <button type="submit" id="pdf-add">PDF 추가</button>
+        <p id="pdf-progress" class="hint" role="status"></p>
+        <p id="pdf-message" class="notice" role="alert"></p>
+      </form>
       <section id="unsaved" aria-label="저장 못 한 항목" hidden>
         <h2>저장 못 한 항목</h2>
         <p>앱을 닫으면 사라져요. 새로고침해도 사라져요. 먼저 다시 저장하거나 글을 복사해 두세요.</p>
@@ -91,10 +101,12 @@
           <p id="detail-link-desc"></p>
           <a id="detail-link-url" target="_blank" rel="noopener noreferrer"></a>
         </div>
+        <div id="detail-pdf-info" hidden></div>
         <textarea id="detail-input" rows="6" aria-label="메모 수정"></textarea>
         <p id="detail-message" class="notice" role="alert"></p>
         <div class="actions">
           <button type="button" id="detail-save">수정 저장</button>
+          <button type="button" id="detail-copy" hidden>요약 요청문 복사</button>
           <button type="button" id="detail-delete" class="danger">삭제</button>
           <button type="button" id="detail-close" class="secondary">닫기</button>
         </div>
@@ -105,6 +117,7 @@
       <p id="viewer-caption"></p>
       <button type="button" id="viewer-close">사진 닫기</button>
     </div>
+    <script src="pdf-tools.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

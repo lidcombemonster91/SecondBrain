@@ -1,14 +1,18 @@
 // 앱 파일을 폰에 저장해 두어 인터넷이 없어도 열리게 한다.
-const CACHE = 'second-brain-v6';
+importScripts('./lib/pdfjs/files.js');
+const CACHE = 'second-brain-v7';
 const FILES = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './pdf-tools.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
+  './lib/pdfjs/files.js',
+  ...self.PDF_FILES,
 ];
 
 self.addEventListener('install', (event) => {
