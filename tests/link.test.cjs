@@ -377,7 +377,7 @@ scenario('공유 단축어 만드는 방법과 라이브 텍스트, 백업 전 �
   assert.ok(box.height >= 44 && box.width >= 44, JSON.stringify(box));
   await summary.click();
   const text = await guide.innerText();
-  for (const word of ['공유 시트에서 보기', '클립보드에 복사', '붙여넣기', '홈 화면', 'Safari', '저장 공간', 'URL 열기']) {
+  for (const word of ['공유 시트에서 보기', '클립보드에 복사', '붙여넣기', '홈 화면', 'Safari', '저장 공간', 'URL 열기', '텍스트', 'Shortcut Input', '결과로 바꾸고']) {
     assert.ok(text.includes(word), word);
   }
   assert.ok((await page.locator('#link-form').innerText()).includes('라이브 텍스트'));
