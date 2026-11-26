@@ -6,6 +6,7 @@
   --accent: #0a60ff;
   --accent-fg: #ffffff;
   --border: #c7c7cc;
+  --danger: #b00012;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -16,6 +17,7 @@
     --accent: #4d8dff;
     --accent-fg: #000000;
     --border: #3a3a3c;
+    --danger: #ff6961;
   }
 }
 
@@ -285,4 +287,57 @@ button.danger {
 
 #install-tip p {
   margin: 4px 0 0;
+}
+
+/* 실패 안내: 글이 없으면 자리를 차지하지 않는다. */
+.notice {
+  margin: 8px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.notice:empty {
+  display: none;
+}
+
+button:disabled {
+  opacity: 0.5;
+}
+
+#db-error,
+#unsaved {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--card);
+  border-left: 4px solid var(--danger);
+  border-radius: 12px;
+}
+
+#db-error[hidden],
+#unsaved[hidden] {
+  display: none;
+}
+
+#db-error p,
+#unsaved p {
+  margin: 0;
+}
+
+#unsaved h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+
+.unsaved-item {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.unsaved-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
 }

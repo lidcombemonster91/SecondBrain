@@ -1,0 +1,11 @@
+# 설치한 도구와 임시 파일은 저장소에 올리지 않는다.
+node_modules/
+test-results/
+*.log
+
+# 비밀 값이 담길 수 있는 파일
+.env
+.env.*
+
+# 앱에서 내보낸 백업 파일(개인 데이터)
+second-brain-*.json
