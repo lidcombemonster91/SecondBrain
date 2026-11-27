@@ -38,6 +38,23 @@
     pasteKept: (fields) => `${fields.join('·')} 칸에는 이미 글이 있어 덮어쓰지 않았어요. 칸을 비우고 다시 붙여넣어 주세요.`,
     urlField: '주소',
     descField: '설명',
+    noText: '글자를 읽지 못했어요. 원본은 보관돼요.',
+    textCut: '글이 길어 앞부분 500,000자까지만 있어서 일부만 검색돼요.',
+    openPdf: 'PDF 열기',
+    notPdf: 'PDF 파일이 아니에요. 저장하지 않았어요.',
+    tooBig: 'PDF는 20MB까지 저장할 수 있어요. 저장하지 않았어요.',
+    fileReadFailed: '파일을 읽지 못했어요. 다시 골라 주세요.',
+    pdfWorking: 'PDF를 읽는 중이에요. 끝날 때까지 앱을 닫지 마세요.',
+    summaryRequest: '아래 PDF 내용을 한국어로 요약해 주세요. 핵심을 먼저 정리해 주세요.\n\n',
+    copied: '요약 요청문을 복사했어요.',
+    copiedPart: '요약 요청문을 복사했어요. 글이 길어 앞부분만 담았어요. (요청문 포함 100,000자)',
+    copyNoText: '복사할 글자가 없어요. 이 PDF에서는 글자를 읽지 못했어요.',
+    copyFailed: '복사하지 못했어요. 다시 눌러 주세요.',
+    persist: {
+      granted: '저장소 보존: 허용됨',
+      denied: '저장소 보존: 허용되지 않음 (백업을 자주 해 주세요)',
+      unsupported: '저장소 보존: 이 브라우저는 지원하지 않음 (백업을 자주 해 주세요)',
+    },
   };
 
   // 상세 화면은 하나를 같이 쓰고, 항목 종류에 따라 고치는 칸과 문구가 달라진다.
@@ -59,6 +76,14 @@
       required: false, // 비워서 저장하면 캡션만 지운다.
       confirm: '이 링크를 삭제할까요? 되돌릴 수 없어요.',
       deleteFailed: '삭제하지 못했어요. 링크는 그대로 남아 있어요.',
+    },
+    pdf: {
+      title: 'PDF 보기',
+      inputLabel: '메모 수정',
+      saveLabel: '수정 저장',
+      field: null, // PDF는 고치지 않는다.
+      confirm: '이 PDF를 삭제할까요? 되돌릴 수 없어요.',
+      deleteFailed: '삭제하지 못했어요. PDF는 그대로 남아 있어요.',
     },
   };
 
@@ -106,6 +131,7 @@
 
   // 검색에 쓰이는 글: 항목 종류가 늘어나도 여기만 고치면 된다.
   function searchableText(item) {
+    if (item.type === 'pdf') return [item.name, item.text, item.pdfText].filter(Boolean).join(' ');
     return item.type === 'link' ? [item.text, item.url, item.caption].filter(Boolean).join(' ') : item.text || '';
   }
 
@@ -168,6 +194,34 @@
     return { url: '', desc: oneLine(value) };
   }
 
+  // 저장된 원본을 새 탭에서 여는 링크. 형식은 항상 application/pdf로 정한다.
+  function pdfLink(item, urls) {
+    const url = URL.createObjectURL(new Blob([item.blob], { type: PdfTools.TYPE }));
+    urls.push(url);
+    const anchor = document.createElement('a');
+    anchor.className = 'pdf-open';
+    anchor.href = url;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener';
+    anchor.textContent = TEXT.openPdf;
+    return anchor;
+  }
+
+  function pdfParts(item, urls) {
+    const line = (className, value) => {
+      const el = document.createElement('span');
+      el.className = className;
+      el.textContent = value;
+      return el;
+    };
+    const parts = [line('badge', 'PDF'), line('pdf-name', item.name)];
+    if (item.text) parts.push(line('pdf-desc', item.text));
+    if (!item.pdfText) parts.push(line('pdf-status', TEXT.noText));
+    else if (item.pdfCut) parts.push(line('pdf-status', TEXT.textCut));
+    parts.push(pdfLink(item, urls));
+    return parts;
+  }
+
   function render() {
     const query = searchInput.value.trim().toLowerCase();
     const items = allItems
@@ -200,6 +254,16 @@
             caption.className = 'caption-preview';
             caption.textContent = item.caption;
             el.append(caption);
+          }
+        } else if (item.type === 'pdf') {
+          el.append(...pdfParts(item, thumbUrls));
+          if (item.thumb) {
+            const img = document.createElement('img');
+            const url = URL.createObjectURL(item.thumb);
+            thumbUrls.push(url);
+            img.src = url;
+            img.alt = `${item.name} 첫 페이지`;
+            el.append(img);
           }
         } else if (item.type === 'photo') {
           const badge = document.createElement('span');
@@ -264,8 +328,9 @@
     memo: document.getElementById('memo-message'),
     link: document.getElementById('link-message'),
     photo: document.getElementById('photo-message'),
+    pdf: document.getElementById('pdf-message'),
   };
-  const TYPE_LABELS = { memo: '메모', link: '링크', photo: '사진' };
+  const TYPE_LABELS = { memo: '메모', link: '링크', photo: '사진', pdf: 'PDF' };
 
   // 입력칸으로 되돌릴 수 없는 항목은 앱이 열려 있는 동안 여기에 보관한다.
   function keepUnsaved(item, preview) {
@@ -365,6 +430,17 @@
   const detailSave = document.getElementById('detail-save');
   const linkInfo = document.getElementById('detail-link-info');
   let openType = null;
+  const pdfInfo = document.getElementById('detail-pdf-info');
+  const copyButton = document.getElementById('detail-copy');
+  let openedPdf = null;
+  let detailUrls = [];
+
+  function clearPdfDetail() {
+    detailUrls.forEach((url) => URL.revokeObjectURL(url));
+    detailUrls = [];
+    openedPdf = null;
+    pdfInfo.replaceChildren();
+  }
 
   function openDetail(item) {
     const view = DETAIL[item.type];
@@ -375,7 +451,17 @@
     detailInput.setAttribute('aria-label', view.inputLabel);
     detailInput.placeholder = item.type === 'link' ? '캡션이 없어요. 여기에 적거나 붙여넣을 수 있어요.' : '';
     detailSave.textContent = view.saveLabel;
-    detailInput.value = item[view.field] || '';
+    detailInput.value = (view.field && item[view.field]) || '';
+    clearPdfDetail();
+    const isPdf = item.type === 'pdf';
+    detailInput.hidden = !view.field;
+    detailSave.hidden = !view.field;
+    pdfInfo.hidden = !isPdf;
+    copyButton.hidden = !isPdf;
+    if (isPdf) {
+      openedPdf = item; // 복사는 누른 즉시 해야 해서 미리 갖고 있는다.
+      pdfInfo.append(...pdfParts(item, detailUrls));
+    }
     linkInfo.hidden = item.type !== 'link';
     if (item.type === 'link') {
       document.getElementById('detail-link-desc').textContent = item.text;
@@ -392,7 +478,7 @@
   }
 
   const detailMessage = document.getElementById('detail-message');
-  const detailButtons = ['detail-save', 'detail-delete', 'detail-close'].map((id) => document.getElementById(id));
+  const detailButtons = ['detail-save', 'detail-delete', 'detail-close', 'detail-copy'].map((id) => document.getElementById(id));
   let detailBusy = false;
 
   // 저장·삭제가 끝날 때까지 편집 화면을 바꾸지 못하게 해서, 실패해도 쓴 내용이 남게 한다.
@@ -408,6 +494,7 @@
     openId = null;
     detail.hidden = true;
     detailInput.value = '';
+    clearPdfDetail();
     detailMessage.textContent = '';
   }
 
@@ -415,7 +502,7 @@
     const text = detailInput.value.trim();
     if (!openId || detailBusy) return;
     const view = DETAIL[openType];
-    if (view.required && !text) return;
+    if (!view.field || (view.required && !text)) return;
     const id = openId;
     let updated;
     setDetailBusy(true);
@@ -453,6 +540,24 @@
     }
     closeDetail();
     await syncList((items) => items.filter((item) => item.id !== id));
+  });
+
+  copyButton.addEventListener('click', async () => {
+    if (!openedPdf || detailBusy) return;
+    if (!openedPdf.pdfText) {
+      detailMessage.textContent = TEXT.copyNoText;
+      return;
+    }
+    const full = TEXT.summaryRequest + openedPdf.pdfText;
+    const text = PdfTools.cut(full, PdfTools.MAX_COPY);
+    detailMessage.textContent = '';
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      detailMessage.textContent = TEXT.copyFailed;
+      return;
+    }
+    detailMessage.textContent = text.length < full.length ? TEXT.copiedPart : TEXT.copied;
   });
 
   document.getElementById('detail-close').addEventListener('click', closeDetail);
@@ -563,9 +668,13 @@
     const items = await run(db, 'readonly', (store) => store.getAll());
     const out = [];
     for (const item of items) {
-      const { blob, ...rest } = item;
+      // PDF에서 뽑은 글과 미리보기는 복원할 때 다시 만들 수 있어 넣지 않는다.
+      const { blob, thumb, pdfText, pdfCut, ...rest } = item;
       if (item.type === 'photo') {
         rest.photo = { mime: blob.type || 'image/jpeg', data: await blobToBase64(blob) };
+      }
+      if (item.type === 'pdf') {
+        rest.pdf = { mime: PdfTools.TYPE, data: await blobToBase64(blob) };
       }
       out.push(rest);
     }
@@ -612,8 +721,30 @@
 
   exportButton.addEventListener('click', () => withBackupLock(exportAll));
 
+  function decodeBase64(data) {
+    const binary = atob(data);
+    // 큰 파일도 메모리를 덜 쓰도록 한 글자씩 옮긴다.
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  // 백업의 PDF: 파일에 적힌 형식은 무시하고, 크기와 %PDF- 시작을 확인한다.
+  function parsePdfData(data) {
+    // base64 길이로 먼저 걸러서, 너무 큰 파일은 풀지 않는다.
+    if (typeof data !== 'string' || data.length > Math.ceil(PdfTools.MAX_BYTES / 3) * 4) return null;
+    try {
+      const bytes = decodeBase64(data);
+      if (bytes.length > PdfTools.MAX_BYTES) return null;
+      if (String.fromCharCode(...bytes.subarray(0, 5)) !== '%PDF-') return null;
+      return new Blob([bytes], { type: PdfTools.TYPE });
+    } catch {
+      return null;
+    }
+  }
+
   function base64ToBlob(data, mime) {
-    const bytes = Uint8Array.from(atob(data), (ch) => ch.charCodeAt(0));
+    const bytes = decodeBase64(data);
     const safeMime = /^image\/(jpeg|png|webp|gif)$/.test(mime) ? mime : 'image/jpeg';
     return new Blob([bytes], { type: safeMime });
   }
@@ -642,6 +773,12 @@
       } catch {
         return null;
       }
+    }
+    if (raw.type === 'pdf') {
+      const blob = parsePdfData(raw.pdf && raw.pdf.data);
+      if (!blob) return null;
+      const name = typeof raw.name === 'string' && raw.name ? raw.name : 'document.pdf';
+      return { ...base, name, blob };
     }
     return null;
   }
@@ -698,6 +835,7 @@
         } else if (existing.has(item.id)) {
           duplicated += 1;
         } else {
+          if (item.type === 'pdf') Object.assign(item, await PdfTools.analyze(item.blob));
           await run(db, 'readwrite', (store) => store.add(item));
           existing.add(item.id);
           added.push(item);
@@ -721,6 +859,18 @@
     importFile.value = '';
     if (file) await withBackupLock(() => importAll(file));
   });
+
+  // 선택했던 파일을 파일 선택칸에 되돌린다. 브라우저가 막으면 false.
+  function restoreFile(fileInput, file) {
+    try {
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      fileInput.files = transfer.files;
+    } catch {
+      return false;
+    }
+    return fileInput.files.length === 1;
+  }
 
   const MAX_SIDE = 1600;
 
@@ -765,20 +915,69 @@
     await saveNewItem(item, {
       restore() {
         if (fileInput.files.length || descInput.value) return false;
-        // 선택했던 파일을 파일 선택칸에 되돌린다. 브라우저가 막으면 따로 보관한다.
-        try {
-          const transfer = new DataTransfer();
-          transfer.items.add(file);
-          fileInput.files = transfer.files;
-        } catch {
-          return false;
-        }
-        if (fileInput.files.length !== 1) return false;
+        if (!restoreFile(fileInput, file)) return false;
         descInput.value = typedDesc;
         return true;
       },
       preview: text ? `${file.name}\n${text}` : file.name,
     });
+  });
+
+  const pdfForm = document.getElementById('pdf-form');
+  const pdfProgress = document.getElementById('pdf-progress');
+  const pdfAdd = document.getElementById('pdf-add');
+  pdfForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const fileInput = document.getElementById('pdf-file');
+    const descInput = document.getElementById('pdf-desc');
+    const message = formMessages.pdf;
+    const file = fileInput.files[0];
+    if (!file || pdfAdd.disabled) return;
+    if (!db) {
+      message.textContent = TEXT.noDb;
+      return;
+    }
+    // 저장하기 전에 크기와 형식을 확인한다. 거부할 때는 입력을 그대로 둔다.
+    if (file.size > PdfTools.MAX_BYTES) {
+      message.textContent = TEXT.tooBig;
+      return;
+    }
+    pdfAdd.disabled = true;
+    try {
+      let blob;
+      try {
+        if (!(await PdfTools.hasPdfHeader(file))) {
+          message.textContent = TEXT.notPdf;
+          return;
+        }
+        // 파일이 주장하는 형식은 쓰지 않는다.
+        blob = new Blob([await file.arrayBuffer()], { type: PdfTools.TYPE });
+      } catch {
+        message.textContent = TEXT.fileReadFailed;
+        return;
+      }
+      const typedDesc = descInput.value;
+      const text = typedDesc.trim();
+      fileInput.value = '';
+      descInput.value = '';
+      message.textContent = '';
+      const createdAt = nextTimestamp();
+      pdfProgress.textContent = TEXT.pdfWorking;
+      const found = await PdfTools.analyze(blob);
+      const item = createItem('pdf', { name: file.name, text, blob, ...found }, createdAt);
+      await saveNewItem(item, {
+        restore() {
+          if (fileInput.files.length || descInput.value) return false;
+          if (!restoreFile(fileInput, file)) return false;
+          descInput.value = typedDesc;
+          return true;
+        },
+        preview: text ? `${file.name}\n${text}` : file.name,
+      });
+    } finally {
+      pdfProgress.textContent = '';
+      pdfAdd.disabled = false;
+    }
   });
 
   form.addEventListener('submit', async (event) => {
@@ -847,6 +1046,22 @@
       });
     });
   }
+
+  // 폰이 저장한 내용을 함부로 지우지 않도록 요청하고, 결과를 보여준다.
+  async function showPersistence() {
+    let state = 'unsupported';
+    const storage = navigator.storage;
+    if (storage && storage.persist && storage.persisted) {
+      try {
+        state = (await storage.persisted()) || (await storage.persist()) ? 'granted' : 'denied';
+      } catch {
+        state = 'denied';
+      }
+    }
+    document.getElementById('persist-status').textContent = TEXT.persist[state];
+  }
+
+  showPersistence();
 
   // 홈 화면 앱으로 열었을 때는 설치 안내가 필요 없다.
   const standalone =

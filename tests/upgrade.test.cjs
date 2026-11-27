@@ -6,10 +6,11 @@ const path = require('node:path');
 const { startServer, openApp, checkoutOldApp } = require('./helpers.cjs');
 
 const ROOT = path.join(__dirname, '..');
-// 첫 배포본과 1단계 배포본
+// 첫 배포본, 1단계 배포본, 2단계(안내 수정 포함) 배포본
 const OLD_VERSIONS = [
   { commit: 'edea9dc', cache: 'second-brain-v3' },
   { commit: 'aad9805', cache: 'second-brain-v4' },
+  { commit: '88815d2', cache: 'second-brain-v6' },
 ];
 
 const cacheNames = (page) => page.evaluate(() => caches.keys());
@@ -54,7 +55,7 @@ async function upgradeFrom(old) {
     await page.reload();
 
     // 3) 새 화면 파일이 쓰이고, 예전 데이터는 그대로다
-    await page.locator('#paste-btn').waitFor({ state: 'attached', timeout: 5000 });
+    await page.locator('#pdf-form').waitFor({ state: 'attached', timeout: 5000 });
     const cachedScript = await page.evaluate(async (name) => {
       const cache = await caches.open(name);
       return (await cache.match('./app.js')).text();
